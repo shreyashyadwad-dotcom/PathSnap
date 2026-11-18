@@ -16,7 +16,6 @@ from streamlit_folium import st_folium
 API_URL = "http://127.0.0.1:8000"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
 STUDENT_TEST_DIR = PROJECT_ROOT / "data" / "student_test"
 
 st.set_page_config(
@@ -47,12 +46,12 @@ st.divider()
 # ==========================================
 
 try:
-    health = requests.get(
+    health_response = requests.get(
         f"{API_URL}/health",
         timeout=5
     )
 
-    health.raise_for_status()
+    health_response.raise_for_status()
 
     st.success("Backend connected successfully")
 
@@ -76,15 +75,12 @@ try:
     response.raise_for_status()
 
     pipeline = response.json()
+    components = pipeline.get("components", {})
 
-    components = pipeline["components"]
-
-    if pipeline["pipeline_ready"]:
+    if pipeline.get("pipeline_ready", False):
         st.success("All prediction components are ready.")
     else:
-        st.warning(
-            "Prediction pipeline integration is pending."
-        )
+        st.warning("Prediction pipeline integration is pending.")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -99,7 +95,6 @@ try:
         [col1, col2, col3, col4],
         component_items
     ):
-
         ready = components.get(key, False)
 
         column.metric(
@@ -107,11 +102,14 @@ try:
             "Ready" if ready else "Pending"
         )
 
-except (requests.RequestException, ValueError, KeyError) as error:
-
-    st.warning(
-        f"Unable to retrieve pipeline status: {error}"
+except requests.RequestException:
+    st.info(
+        "Detailed pipeline status endpoint is not available "
+        "in the current backend."
     )
+
+except (ValueError, KeyError) as error:
+    st.warning(f"Unable to retrieve pipeline status: {error}")
 
 
 # ==========================================
@@ -129,28 +127,28 @@ with st.expander("Model Artifact Status"):
         response.raise_for_status()
 
         artifact_data = response.json()
+        artifacts = artifact_data.get("artifacts", {})
 
-        artifacts = artifact_data["artifacts"]
-
-        if artifact_data["artifacts_ready"]:
+        if artifact_data.get("artifacts_ready", False):
             st.success("All model artifacts are available.")
         else:
-            st.warning(
-                "Some model artifacts are not available yet."
-            )
+            st.warning("Some model artifacts are not available yet.")
 
-        for name, status in artifacts.items():
+        for name, artifact_status in artifacts.items():
 
-            if status == "available":
+            if artifact_status == "available":
                 st.success(f"{name}: Available")
             else:
-                st.warning(f"{name}: {status}")
+                st.warning(f"{name}: {artifact_status}")
 
-    except (requests.RequestException, ValueError, KeyError) as error:
-
-        st.error(
-            f"Unable to retrieve artifact status: {error}"
+    except requests.RequestException:
+        st.info(
+            "Artifact status endpoint is not available "
+            "in the current backend."
         )
+
+    except (ValueError, KeyError) as error:
+        st.error(f"Unable to retrieve artifact status: {error}")
 
 
 st.divider()
@@ -170,25 +168,62 @@ try:
 
     response.raise_for_status()
 
-    trips = response.json()["trips"]
+    trips = response.json().get("trips", [])
 
 except requests.RequestException as error:
-
     st.error(f"Unable to retrieve trips: {error}")
     st.stop()
+
+except (ValueError, KeyError) as error:
+    st.error(f"Invalid trip response: {error}")
+    st.stop()
+
 
 if not trips:
     st.warning("No student-testing trips available.")
     st.stop()
 
-st.write(
-    f"Available student-testing trips: {len(trips)}"
-)
+
+st.write(f"Available student-testing trips: {len(trips)}")
+
+
+# Support the dictionary response from the current backend.
+# Also support string trip IDs if the API returns strings.
+
+def get_trip_id(trip):
+    if isinstance(trip, dict):
+        return str(trip["trip_id"])
+
+    return str(trip)
+
+
+def get_trip_label(trip):
+    if isinstance(trip, dict):
+        return trip.get(
+            "label",
+            f"Trip {trip['trip_id']}"
+        )
+
+    return str(trip)
+
 
 selected_trip = st.selectbox(
     "Select a trip",
-    trips
+    trips,
+    format_func=get_trip_label
 )
+
+# Extract the actual trip ID instead of using the dictionary.
+trip_id = get_trip_id(selected_trip)
+
+# Get split from the selected trip.
+if isinstance(selected_trip, dict):
+    selected_split = selected_trip.get(
+        "split",
+        "student_test"
+    )
+else:
+    selected_split = "student_test"
 
 
 # ==========================================
@@ -201,17 +236,16 @@ st.header("GPS Trajectory Visualisation")
 
 track_path = (
     STUDENT_TEST_DIR
-    / selected_trip
-    / f"{selected_trip}.track"
+    / trip_id
+    / f"{trip_id}.track"
 )
 
 if not track_path.exists():
-
-    st.error("GPS track file not found.")
+    st.error(f"GPS track file not found: {track_path}")
     st.stop()
 
-try:
 
+try:
     track = pd.read_csv(
         track_path,
         sep=r"\s+",
@@ -234,13 +268,9 @@ try:
         & track["latitude"].between(-90, 90)
     )
 
-    track = (
-        track[valid]
-        .reset_index(drop=True)
-    )
+    track = track[valid].reset_index(drop=True)
 
     if track.empty:
-
         st.error("No valid GPS observations found.")
         st.stop()
 
@@ -327,7 +357,7 @@ try:
         gps_map,
         width=None,
         height=500,
-        key=f"gps_map_{selected_trip}"
+        key=f"gps_map_{trip_id}"
     )
 
     st.caption(
@@ -335,114 +365,78 @@ try:
         "Green marker: Start. Red marker: End."
     )
 
+
 except Exception as error:
-
-    st.error(
-        f"Unable to generate GPS map: {error}"
-    )
-
+    st.error(f"Unable to generate GPS map: {error}")
     st.stop()
 
 
 # ==========================================
-# 11. ROUTE PREDICTION
+# 11. ROUTE RECONSTRUCTION
 # ==========================================
 
 st.divider()
 
-st.header("Route Prediction")
+st.header("Route Reconstruction")
 
-st.write(
-    f"Selected Trip: **{selected_trip}**"
-)
+st.write(f"Selected Trip: **{trip_id}**")
 
 if st.button(
-    "Predict Route",
-    type="primary",
-    use_container_width=False
+    "Reconstruct Route",
+    type="primary"
 ):
 
     with st.spinner(
-        "Processing GPS observations and requesting prediction..."
+        "Running ML + HMM + Viterbi route reconstruction..."
     ):
 
         try:
-
-            prediction_response = requests.post(
-                f"{API_URL}/predict/",
+            reconstruction_response = requests.post(
+                f"{API_URL}/reconstruct",
                 json={
-                    "trip_id": selected_trip
+                    "trip_id": trip_id,
+                    "split": selected_split
                 },
-                timeout=120
+                timeout=300
             )
 
-            prediction_response.raise_for_status()
+            reconstruction_response.raise_for_status()
 
-            result = prediction_response.json()
+            result = reconstruction_response.json()
 
-            st.success("Route prediction completed successfully!")
+            st.success(
+                "Route reconstruction completed successfully!"
+            )
 
-            st.subheader("Prediction Results")
+            st.subheader("Reconstruction Results")
 
             st.json(result)
 
-            # Display prediction metrics when available
-            if "metrics" in result:
-
-                metrics = result["metrics"]
-
-                col1, col2 = st.columns(2)
-
-                col1.metric(
-                    "GPS Observations",
-                    metrics.get("gps_observations", "N/A")
-                )
-
-                col2.metric(
-                    "Candidate Records",
-                    metrics.get("candidate_records", "N/A")
-                )
-
-            if "inference_time" in result:
-
-                st.metric(
-                    "Inference Time",
-                    f"{result['inference_time']} seconds"
-                )
-
             st.info(
-                "The prediction response is displayed above. "
-                "The current Folium map still shows raw GPS data "
-                "until predicted road geometry is integrated."
+                "The reconstruction response is displayed above. "
+                "The map currently displays raw GPS observations; "
+                "the reconstructed road geometry has not yet been "
+                "overlaid on the Folium map."
             )
 
         except requests.HTTPError as error:
 
             try:
-                error_data = prediction_response.json()
-
-                detail = error_data.get(
+                detail = reconstruction_response.json().get(
                     "detail",
                     str(error)
                 )
-
             except ValueError:
                 detail = str(error)
 
-            st.warning(
-                f"Prediction unavailable: {detail}"
-            )
+            st.error(f"Reconstruction failed: {detail}")
 
         except requests.Timeout:
-
-            st.error(
-                "Prediction request timed out."
-            )
+            st.error("Reconstruction request timed out.")
 
         except requests.RequestException as error:
-
             st.error(
-                f"Unable to connect to prediction API: {error}"
+                f"Unable to connect to reconstruction API: {error}"
             )
 
 
