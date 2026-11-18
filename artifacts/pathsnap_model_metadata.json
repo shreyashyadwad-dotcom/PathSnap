@@ -1,6 +1,5 @@
 {
-  "model_name": "Random Forest (Balanced, Tuned)",
-  "selected_model": "Random Forest",
+  "selected_model": "Gradient Boosting",
   "feature_columns": [
     "distance_m",
     "heading_diff",
@@ -21,18 +20,16 @@
     "obs_idx",
     "candidate_arc_id"
   ],
+  "cv_strategy": "GroupKFold",
+  "cv_groups": "trip_id",
+  "n_splits": 5,
   "training_rows": 1049122,
   "training_trips": 80,
   "student_test_rows": 113220,
-  "student_test_trips": 10,
-  "fit_duration_seconds": 187.73172664642334,
-  "metrics": {
-    "top1_accuracy": 0.8231780793210038,
-    "top3_recall": 0.9702415256457274,
-    "mrr": 0.8987531403822597,
-    "macro_f1": 0.851195834128109,
-    "accuracy": 0.9051492669139728,
-    "precision": 0.6607982124971107,
-    "recall": 0.8986744904909101
+  "probability_format": "raw_probability is binary positive-class probability; probability is normalized within (trip_id, obs_idx)",
+  "student_test_ranking": {
+    "Top-1 Accuracy": 0.8204013202703411,
+    "Top-3 Recall": 0.9651595326662126,
+    "MRR": 0.8956321555184656
   }
 }
