@@ -1,0 +1,35 @@
+{
+  "selected_model": "Gradient Boosting",
+  "feature_columns": [
+    "distance_m",
+    "heading_diff",
+    "speed_mps",
+    "bearing",
+    "projected_offset_m",
+    "arc_length_m",
+    "remaining_distance_m",
+    "offset_ratio",
+    "time_delta_s",
+    "gps_displacement_m",
+    "candidate_heading_deg",
+    "heading_missing"
+  ],
+  "target": "is_match",
+  "identifier_columns": [
+    "trip_id",
+    "obs_idx",
+    "candidate_arc_id"
+  ],
+  "cv_strategy": "GroupKFold",
+  "cv_groups": "trip_id",
+  "n_splits": 5,
+  "training_rows": 1049122,
+  "training_trips": 80,
+  "student_test_rows": 113220,
+  "probability_format": "raw_probability is binary positive-class probability; probability is normalized within (trip_id, obs_idx)",
+  "student_test_ranking": {
+    "Top-1 Accuracy": 0.8204013202703411,
+    "Top-3 Recall": 0.9651595326662126,
+    "MRR": 0.8956321555184656
+  }
+}
